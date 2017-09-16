@@ -84,7 +84,9 @@ module Devise
         private
 
         def attribute_map_for_environment
-          attribute_map = YAML.load(File.read("#{Rails.root}/config/attribute-map.yml"))
+          attribute_map = Devise.attribute_map ||
+            YAML.load(File.read("#{Rails.root}/config/attribute-map.yml"))
+
           if attribute_map.has_key?(Rails.env)
             attribute_map[Rails.env]
           else

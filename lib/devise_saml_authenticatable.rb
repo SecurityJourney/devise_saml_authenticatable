@@ -71,6 +71,10 @@ module Devise
   mattr_accessor :allowed_clock_drift_in_seconds
   @@allowed_clock_drift_in_seconds
 
+  # Custom value for attribute map to be loaded from the settings
+  mattr_accessor :attribute_map
+  @@attribute_map
+
   mattr_accessor :saml_config
   @@saml_config = OneLogin::RubySaml::Settings.new
   def self.saml_configure
