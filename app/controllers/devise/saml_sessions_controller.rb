@@ -4,11 +4,7 @@ class Devise::SamlSessionsController < Devise::SessionsController
   include DeviseSamlAuthenticatable::SamlConfig
   unloadable if Rails::VERSION::MAJOR < 4
 
-  if Rails::VERSION::MAJOR < 5
-    skip_before_filter :verify_authenticity_token
-  else
-    skip_before_action :verify_authenticity_token
-  end
+  skip_before_action :verify_authenticity_token, raise: false
 
   def new
     idp_entity_id = get_idp_entity_id(params)
