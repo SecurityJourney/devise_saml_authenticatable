@@ -1,9 +1,6 @@
 module SamlAuthenticatable
   class SamlMappedAttributes
     def initialize(attributes, attribute_map)
-      logger.info("attributes:\n" + attributes)
-      logger.info("attribute_map:\n" + attribute_map)
-
       @attributes = attributes
       @attribute_map = attribute_map
       @inverted_attribute_map = @attribute_map.invert
