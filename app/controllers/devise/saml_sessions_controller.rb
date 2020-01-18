@@ -44,7 +44,7 @@ class Devise::SamlSessionsController < Devise::SessionsController
   protected
 
   def log_params
-    logger.info(response.attributes)
+    puts response.attributes
   end
 
   def relay_state
