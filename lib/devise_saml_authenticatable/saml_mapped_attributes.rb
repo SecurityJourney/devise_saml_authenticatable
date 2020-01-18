@@ -24,7 +24,7 @@ module SamlAuthenticatable
       # Find the first non-nil value
       attribute_map_for_key.each_key do |saml_key|
         saml_value = value_by_saml_attribute_key(saml_key)
-
+puts saml_value
         break unless saml_value.nil?
       end
 

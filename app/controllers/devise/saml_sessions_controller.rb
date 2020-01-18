@@ -47,10 +47,6 @@ class Devise::SamlSessionsController < Devise::SessionsController
 
   protected
 
-  def log_params
-    puts response.attributes
-  end
-
   def relay_state
     @relay_state ||= if Devise.saml_relay_state.present?
       Devise.saml_relay_state.call(request)
