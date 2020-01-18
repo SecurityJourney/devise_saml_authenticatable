@@ -3,6 +3,7 @@ require "ruby-saml"
 class Devise::SamlSessionsController < Devise::SessionsController
   include DeviseSamlAuthenticatable::SamlConfig
   unloadable if Rails::VERSION::MAJOR < 4
+  before_action :log_params, only: [:create]
 
   skip_before_action :verify_authenticity_token, raise: false
 
@@ -41,6 +42,10 @@ class Devise::SamlSessionsController < Devise::SessionsController
   end
 
   protected
+
+  def log_params
+    logger.info(response.attributes)
+  end
 
   def relay_state
     @relay_state ||= if Devise.saml_relay_state.present?
