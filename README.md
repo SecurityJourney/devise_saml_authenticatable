@@ -6,19 +6,20 @@ It uses [ruby-saml][] to handle all SAML-related stuff.
 
 ## Installation
 
-Add this line to your application's Gemfile:
+Add this gem to your application's Gemfile:
 
-    gem 'devise_saml_authenticatable'
+    git_source(:github) { |repo_name| "https://github.com/#{repo_name}" }
+    gem "devise_saml_authenticatable", github: "apokalipto/devise_saml_authenticatable"
 
 And then execute:
 
     $ bundle
 
-Or install it yourself as:
-
-    $ gem install devise_saml_authenticatable
-
 ## Usage
+
+Follow the [normal devise installation process](https://github.com/plataformatec/devise/tree/master#getting-started). The controller filters and helpers are unchanged from normal devise usage.
+
+### Configuring Models
 
 In `app/models/<YOUR_MODEL>.rb` set the `:saml_authenticatable` strategy.
 
@@ -31,6 +32,37 @@ In the example the model is `user.rb`:
     ...
   end
 ```
+
+### Configuring routes
+
+In `config/routes.rb` add `devise_for` to set up helper methods and routes:
+
+```ruby
+devise_for :users
+```
+
+The named routes can be customized in the initializer config file.
+
+### Configuring the IdP
+
+An extra step in SAML SSO setup is adding your application to your identity provider. The required setup is specific to each IdP, but we have some examples in [our wiki](https://github.com/apokalipto/devise_saml_authenticatable/wiki). You'll need to tell your IdP how to send requests and responses to your application.
+
+- Creating a new session: `/users/saml/auth`
+    - IdPs may call this the "consumer," "recipient," "destination," or even "single sign-on." This is where they send a SAML response for an authenticated user.
+- Metadata: `/users/saml/metadata`
+    - IdPs may call this the "audience."
+- Single Logout: `/users/saml/idp_sign_out`
+    - if desired, you can ask the IdP to send a Logout request to this endpoint to sign the user out of your application when they sign out of the IdP itself.
+
+Your IdP should give you some information you need to configure in [ruby-saml](https://github.com/onelogin/ruby-saml), as in the next section:
+
+- Issuer (`idp_entity_id`)
+- SSO endpoint (`idp_sso_target_url`)
+- SLO endpoint (`idp_slo_target_url`)
+- Certificate fingerprint (`idp_cert_fingerprint`) and algorithm (`idp_cert_fingerprint_algorithm`)
+    - Or the certificate itself (`idp_cert`)
+
+### Configuring handling of IdP requests and responses
 
 In `config/initializers/devise.rb`:
 
@@ -69,8 +101,19 @@ In `config/initializers/devise.rb`:
     # and implements a #handle method. This method can then redirect the user, return error messages, etc.
     # config.saml_failed_callback = nil
 
-    # Configure with your SAML settings (see [ruby-saml][] for more information).
+    # You can customize the named routes generated in case of named route collisions with
+    # other Devise modules or libraries. Set the saml_route_helper_prefix to a string that will
+    # be appended to the named route.
+    # If saml_route_helper_prefix = 'saml' then the new_user_session route becomes new_saml_user_session
+    # config.saml_route_helper_prefix = 'saml'
+
+    # You can add allowance for clock drift between the sp and idp.
+    # This is a time in seconds.
+    # config.allowed_clock_drift_in_seconds = 0
+
+    # Configure with your SAML settings (see ruby-saml's README for more information: https://github.com/onelogin/ruby-saml).
     config.saml_configure do |settings|
+      # assertion_consumer_service_url is required starting with ruby-saml 1.4.3: https://github.com/onelogin/ruby-saml#updating-from-142-to-143
       settings.assertion_consumer_service_url     = "http://localhost:3000/users/saml/auth"
       settings.assertion_consumer_service_binding = "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
       settings.name_identifier_format             = "urn:oasis:names:tc:SAML:2.0:nameid-format:transient"
@@ -78,29 +121,32 @@ In `config/initializers/devise.rb`:
       settings.authn_context                      = ""
       settings.idp_slo_target_url                 = "http://localhost/simplesaml/www/saml2/idp/SingleLogoutService.php"
       settings.idp_sso_target_url                 = "http://localhost/simplesaml/www/saml2/idp/SSOService.php"
-      settings.idp_cert                           = <<-CERT.chomp
------BEGIN CERTIFICATE-----
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111_______IDP_CERTIFICATE________111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-1111111111111111111111111111111111111111111111111111111111111111
-111111111111111111
------END CERTIFICATE-----
-      CERT
+      settings.idp_cert_fingerprint               = "00:A1:2B:3C:44:55:6F:A7:88:CC:DD:EE:22:33:44:55:D6:77:8F:99"
+      settings.idp_cert_fingerprint_algorithm     = "http://www.w3.org/2000/09/xmldsig#sha1"
     end
   end
 ```
 
-In the config directory, create a YAML file (`attribute-map.yml`) that maps SAML attributes with your model's fields:
+#### Attributes
+
+There are two ways to map SAML attributes to User attributes:
+
+- [initializer](#attribute-map-initializer)
+- [config file](#attribute-map-config-file)
+
+The attribute mappings are very dependent on the way the IdP encodes the attributes.
+In these examples the attributes are given in URN style.
+Other IdPs might provide them as OID's, or by other means.
+
+You are now ready to test it against an IdP.
+
+When the user visits `/users/saml/sign_in` they will be redirected to the login page of the IdP.
+
+Upon successful login the user is redirected to the Devise `user_root_path`.
+
+##### Attribute map config file
+
+Create a YAML file (`config/attribute-map.yml`) that maps SAML attributes with your model's fields:
 
 ```yaml
   # attribute-map.yml
@@ -111,15 +157,39 @@ In the config directory, create a YAML file (`attribute-map.yml`) that maps SAML
   "urn:mace:dir:attribute-def:givenName": "name"
 ```
 
-The attribute mappings are very dependent on the way the IdP encodes the attributes.
-In this example the attributes are given in URN style.
-Other IdPs might provide them as OID's, or by other means.
+##### Attribute map initializer
 
-You are now ready to test it against an IdP.
+In `config/initializers/devise.rb` (see above), add an attribute map resolver.
+The resolver gets the [SAML response from the IdP](https://github.com/onelogin/ruby-saml/blob/master/lib/onelogin/ruby-saml/response.rb) so it can decide which attribute map to load.
+If you only have one IdP, you can use the config file above, or just return a single hash.
 
-When the user visits `/users/saml/sign_in` they will be redirected to the login page of the IdP.
+```ruby
+  # config/initializers/devise.rb
+  Devise.setup do |config|
+    ...
+    # ==> Configuration for :saml_authenticatable
 
-Upon successful login the user is redirected to the Devise `user_root_path`.
+    config.saml_attribute_map_resolver = MyAttributeMapResolver
+  end
+```
+
+```ruby
+  # app/lib/my_attribute_map_resolver
+  class MyAttributeMapResolver < DeviseSamlAuthenticatable::DefaultAttributeMapResolver
+    def attribute_map
+      issuer = saml_response.issuers.first
+      case issuer
+      when "idp_entity_id"
+        {
+          "urn:mace:dir:attribute-def:uid" => "user_name",
+          "urn:mace:dir:attribute-def:email" => "email",
+          "urn:mace:dir:attribute-def:name" => "last_name",
+          "urn:mace:dir:attribute-def:givenName" => "name",
+        }
+      end
+    end
+  end
+```
 
 ## Supporting Multiple IdPs
 
@@ -159,6 +229,7 @@ class IdPSettingsAdapter
   end
 end
 ```
+Settings specified in the adapter will override settings in `config/initializers/devise.rb`. This is useful for establishing common settings or defaults across all IdPs.
 
 Detecting the entity ID passed to the `settings` method is done by `config.idp_entity_id_reader`.
 
@@ -192,9 +263,11 @@ Logout requests from the IDP are supported by the `idp_sign_out` endpoint.  Dire
 
 `saml_session_index_key` must be configured to support this feature.
 
-## Signing and Encrypting Authentication Requests
+## Signing and Encrypting Authentication Requests and Assertions
 
 ruby-saml 1.0.0 supports signature and decrypt. The only requirement is to set the public certificate and the private key. For more information, see [the ruby-saml documentation](https://github.com/onelogin/ruby-saml#signing).
+
+If you have multiple IdPs, the certificate and private key must be in the shared settings in `config/initializers/devise.rb`.
 
 ## Thanks
 
