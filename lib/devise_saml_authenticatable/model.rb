@@ -33,9 +33,9 @@ module Devise
           key = Devise.saml_default_user_key
           decorated_response = ::SamlAuthenticatable::SamlResponse.new(
             saml_response,
-            attribute_map
+            Devise.saml_attribute_map_resolver.new(saml_response).attribute_map,
           )
-          if (Devise.saml_use_subject)
+          if Devise.saml_use_subject
             auth_value = saml_response.name_id
           else
             auth_value = decorated_response.attribute_value_by_resource_key(key)
@@ -44,8 +44,12 @@ module Devise
 
           resource = Devise.saml_resource_locator.call(self, decorated_response, auth_value)
 
-          if Devise.saml_resource_validator
-            if not Devise.saml_resource_validator.new.validate(resource, saml_response)
+          raise "Only one validator configuration can be used at a time" if Devise.saml_resource_validator && Devise.saml_resource_validator_hook
+          if Devise.saml_resource_validator || Devise.saml_resource_validator_hook
+            valid = if Devise.saml_resource_validator then Devise.saml_resource_validator.new.validate(resource, saml_response)
+                    else Devise.saml_resource_validator_hook.call(resource, decorated_response, auth_value)
+                    end
+            if !valid
               logger.info("User(#{auth_value}) did not pass custom validation.")
               return nil
             end
@@ -62,7 +66,12 @@ module Devise
           end
 
           if Devise.saml_update_user || (resource.new_record? && Devise.saml_create_user)
-            Devise.saml_update_resource_hook.call(resource, decorated_response, auth_value)
+            begin
+              Devise.saml_update_resource_hook.call(resource, decorated_response, auth_value)
+            rescue
+              logger.info("User(#{auth_value}) failed to create or update.")
+              return nil
+            end
           end
 
           resource
@@ -75,21 +84,6 @@ module Devise
 
         def find_for_shibb_authentication(conditions)
           find_for_authentication(conditions)
-        end
-
-        def attribute_map
-          @attribute_map ||= attribute_map_for_environment
-        end
-
-        private
-
-        def attribute_map_for_environment
-          attribute_map = YAML.load(File.read("#{Rails.root}/config/attribute-map.yml"))
-          if attribute_map.has_key?(Rails.env)
-            attribute_map[Rails.env]
-          else
-            attribute_map
-          end
         end
       end
     end

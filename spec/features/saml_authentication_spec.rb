@@ -5,6 +5,7 @@ require 'uri'
 require 'capybara/rspec'
 require 'capybara/poltergeist'
 Capybara.default_driver = :poltergeist
+Capybara.server = :webrick
 
 describe "SAML Authentication", type: :feature do
   let(:idp_port) { 8009 }
@@ -56,7 +57,7 @@ describe "SAML Authentication", type: :feature do
       expect(current_url).to eq("http://localhost:8020/")
 
       click_on "Log out"
-      #confirm the logout response redirected to the SP which in turn attempted to sign th e
+      # confirm the logout response redirected to the SP which in turn attempted to sign the user back in
       expect(current_url).to match(%r(\Ahttp://localhost:8009/saml/auth\?SAMLRequest=))
 
       # prove user is now signed out
@@ -84,8 +85,8 @@ describe "SAML Authentication", type: :feature do
       @sp_pid  = start_app('sp',  sp_port)
     end
     after(:each) do
-      stop_app(@idp_pid)
-      stop_app(@sp_pid)
+      stop_app("idp", @idp_pid)
+      stop_app("sp", @sp_pid)
     end
 
     it_behaves_like "it authenticates and creates users"
@@ -99,8 +100,8 @@ describe "SAML Authentication", type: :feature do
       @sp_pid  = start_app('sp',  sp_port)
     end
     after(:each) do
-      stop_app(@idp_pid)
-      stop_app(@sp_pid)
+      stop_app("idp", @idp_pid)
+      stop_app("sp", @sp_pid)
     end
 
     it_behaves_like "it authenticates and creates users"
@@ -114,8 +115,8 @@ describe "SAML Authentication", type: :feature do
       @sp_pid  = start_app('sp',  sp_port)
     end
     after(:each) do
-      stop_app(@idp_pid)
-      stop_app(@sp_pid)
+      stop_app("idp", @idp_pid)
+      stop_app("sp", @sp_pid)
     end
 
     it_behaves_like "it authenticates and creates users"
@@ -130,33 +131,33 @@ describe "SAML Authentication", type: :feature do
       @sp_pid  = start_app('sp',  sp_port)
     end
     after(:each) do
-      stop_app(@idp_pid)
-      stop_app(@sp_pid)
+      stop_app("idp", @idp_pid)
+      stop_app("sp", @sp_pid)
     end
 
     it_behaves_like "it authenticates and creates users"
   end
 
   context "when the idp_settings_adapter key is set" do
-
     before(:each) do
       create_app('idp', 'INCLUDE_SUBJECT_IN_ATTRIBUTES' => "false")
       create_app('sp', 'USE_SUBJECT_TO_AUTHENTICATE' => "true", 'IDP_SETTINGS_ADAPTER' => "IdpSettingsAdapter", 'IDP_ENTITY_ID_READER' => "OurEntityIdReader")
 
-      @idp_pid = start_app('idp', idp_port)
+      # use a different port for this entity ID; configured in spec/support/idp_settings_adapter.rb.erb
+      @idp_pid = start_app('idp', 8010)
       @sp_pid  = start_app('sp',  sp_port)
     end
 
     after(:each) do
-      stop_app(@idp_pid)
-      stop_app(@sp_pid)
+      stop_app("idp", @idp_pid)
+      stop_app("sp", @sp_pid)
     end
 
     it "authenticates an existing user on a SP via an IdP" do
       create_user("you@example.com")
 
       visit 'http://localhost:8020/users/saml/sign_in/?entity_id=http%3A%2F%2Flocalhost%3A8020%2Fsaml%2Fmetadata'
-      expect(current_url).to match(%r(\Ahttp://www.example.com/\?SAMLRequest=))
+      expect(current_url).to match(%r(\Ahttp://localhost:8010/saml/auth\?SAMLRequest=))
     end
   end
 
@@ -171,8 +172,8 @@ describe "SAML Authentication", type: :feature do
     end
 
     after(:each) do
-      stop_app(@idp_pid)
-      stop_app(@sp_pid)
+      stop_app("idp", @idp_pid)
+      stop_app("sp", @sp_pid)
     end
 
     it_behaves_like "it authenticates and creates users"
@@ -187,10 +188,34 @@ describe "SAML Authentication", type: :feature do
         fill_in "Email", with: "you@example.com"
         fill_in "Password", with: "asdf"
         click_on "Sign in"
-        expect(page).to have_content("Example Domain This domain is established to be used for illustrative examples in documents. You may use this domain in examples without prior coordination or asking for permission.")
+        expect(page).to have_content(:all, "Example Domain This domain is for use in illustrative examples in documents. You may use this domain in literature without prior coordination or asking for permission.")
         expect(current_url).to eq("http://www.example.com/")
       end
     end
+  end
+
+  context "when the saml_attribute_map is set" do
+    before(:each) do
+      create_app(
+        "idp",
+        "EMAIL_ADDRESS_ATTRIBUTE_KEY" => "myemailaddress",
+        "NAME_ATTRIBUTE_KEY" => "myname",
+        "INCLUDE_SUBJECT_IN_ATTRIBUTES" => "false",
+      )
+      create_app(
+        "sp",
+        "ATTRIBUTE_MAP_RESOLVER" => "AttributeMapResolver",
+        "USE_SUBJECT_TO_AUTHENTICATE" => "true",
+      )
+      @idp_pid = start_app("idp", idp_port)
+      @sp_pid  = start_app("sp", sp_port)
+    end
+    after(:each) do
+      stop_app("idp", @idp_pid)
+      stop_app("sp", @sp_pid)
+    end
+
+    it_behaves_like "it authenticates and creates users"
   end
 
   def create_user(email)
@@ -198,13 +223,12 @@ describe "SAML Authentication", type: :feature do
     expect(response.code).to eq('201')
   end
 
-  def sign_in
-    visit 'http://localhost:8020/'
-    expect(current_url).to match(%r(\Ahttp://localhost:8009/saml/auth\?SAMLRequest=))
+  def sign_in(entity_id: "")
+    visit "http://localhost:8020/users/saml/sign_in/?entity_id=#{URI.escape(entity_id)}"
     fill_in "Email", with: "you@example.com"
     fill_in "Password", with: "asdf"
     click_on "Sign in"
-    Timeout.timeout(Capybara.default_wait_time) do
+    Timeout.timeout(Capybara.default_max_wait_time) do
       loop do
         sleep 0.1
         break if current_url == "http://localhost:8020/"
