@@ -5,6 +5,7 @@ require "devise_saml_authenticatable/exception"
 require "devise_saml_authenticatable/logger"
 require "devise_saml_authenticatable/routes"
 require "devise_saml_authenticatable/saml_config"
+require "devise_saml_authenticatable/default_attribute_map_resolver"
 require "devise_saml_authenticatable/default_idp_entity_id_reader"
 
 begin
@@ -19,6 +20,10 @@ end
 
 # Get saml information from config/saml.yml now
 module Devise
+  # Allow route customization to avoid collision
+  mattr_accessor :saml_route_helper_prefix
+  @@saml_route_helper_prefix
+
   # Allow logging
   mattr_accessor :saml_logger
   @@saml_logger = true
@@ -62,18 +67,30 @@ module Devise
   mattr_accessor :saml_relay_state
   @@saml_relay_state
 
-  # Implements a #validate method that takes the retrieved resource and response right after retrieval,
-  # and returns true if it's valid.  False will cause authentication to fail.
-  mattr_accessor :saml_resource_validator
-  @@saml_resource_validator
-
-  # Custom value for ruby-saml allowed_clock_drift
-  mattr_accessor :allowed_clock_drift_in_seconds
-  @@allowed_clock_drift_in_seconds
+  # Instead of storing the attribute_map in attribute-map.yml, store it in the database, or set it programatically
+  mattr_accessor :saml_attribute_map_resolver
+  @@saml_attribute_map_resolver ||= ::DeviseSamlAuthenticatable::DefaultAttributeMapResolver
 
   # Custom value for attribute map to be loaded from the settings
   mattr_accessor :attribute_map
   @@attribute_map
+
+  # Implements a #validate method that takes the retrieved resource and response right after retrieval,
+  # and returns true if it's valid.  False will cause authentication to fail.
+  # Only one of saml_resource_validator and saml_resource_validator_hook may be used.
+  mattr_accessor :saml_resource_validator
+  @@saml_resource_validator
+
+  # Proc that determines whether a technically correct SAML response is valid per some custom logic.
+  # Receives the user object (or nil, if no match was found), decorated saml_response and
+  # auth_value, inspects the combination for acceptability of login (or create+login, if enabled),
+  # and returns true if it's valid.  False will cause authentication to fail.
+  mattr_accessor :saml_resource_validator_hook
+  @@saml_resource_validator_hook
+
+  # Custom value for ruby-saml allowed_clock_drift
+  mattr_accessor :allowed_clock_drift_in_seconds
+  @@allowed_clock_drift_in_seconds
 
   mattr_accessor :saml_config
   @@saml_config = OneLogin::RubySaml::Settings.new
@@ -98,7 +115,7 @@ module Devise
   end
 
   # Proc that is called if Devise.saml_update_user and/or Devise.saml_create_user are true.
-  # Recieves the user object, saml_response and auth_value, and defines how the object's values are
+  # Receives the user object, saml_response and auth_value, and defines how the object's values are
   # updated with regards to the SAML response. See saml_default_update_resource_hook for an example.
   mattr_accessor :saml_update_resource_hook
   @@saml_update_resource_hook = @@saml_default_update_resource_hook
@@ -111,11 +128,19 @@ module Devise
   end
 
   # Proc that is called to resolve the saml_response and auth_value into the correct user object.
-  # Recieves a copy of the ActiveRecord::Model, saml_response and auth_value. Is expected to return
+  # Receives a copy of the ActiveRecord::Model, saml_response and auth_value. Is expected to return
   # one instance of the provided model that is the matched account, or nil if none exists.
   # See saml_default_resource_locator above for an example.
   mattr_accessor :saml_resource_locator
   @@saml_resource_locator = @@saml_default_resource_locator
+
+  # Proc that is called to resolve the name identifier to use in a LogoutRequest for the current user.
+  # Receives the logged-in user.
+  # Is expected to return the identifier the IdP understands for this user, e.g. email address or username.
+  mattr_accessor :saml_name_identifier_retriever
+  @@saml_name_identifier_retriever = Proc.new do |current_user|
+    current_user.public_send(Devise.saml_default_user_key)
+  end
 end
 
 # Add saml_authenticatable strategy to defaults.
